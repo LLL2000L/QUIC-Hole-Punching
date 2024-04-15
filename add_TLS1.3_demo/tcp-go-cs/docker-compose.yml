@@ -1,0 +1,48 @@
+#TCP:存在客户端和服务器，网段 192.168.100.1-2
+#QUIC:存在客户端和服务器，网段 192.168.200.1-2
+
+services:
+  tcp_server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command:  >
+      sh -c "\
+        tc qdisc add dev eth0 root handle 1: netem delay 0ms && \
+        ./cs tcp_s :9001"
+    image: tcp_docker
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - /var/run/docker/netns:/var/run/docker/netns
+    networks:
+      tcp_network:
+        ipv4_address: 192.168.10.100
+
+  tcp_client:
+    depends_on:
+      - tcp_server
+    command: >
+      sh -c "\
+        tc qdisc add dev eth0 root handle 1: netem delay 0ms && \
+        ./cs tcp_c 192.168.10.100:9001 && \
+        sleep infinity"
+    image: tcp_docker
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - /var/run/docker/netns:/var/run/docker/netns
+    networks:
+      tcp_network:
+        ipv4_address: 192.168.10.200
+
+networks:
+  tcp_network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: 'false'
+    ipam:
+      config:
+        - subnet: 192.168.10.0/24

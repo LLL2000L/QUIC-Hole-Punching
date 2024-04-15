@@ -1,0 +1,135 @@
+services:
+#  测试docker的网络速度
+  speedtest-x:
+    container_name: speedtest-x
+    ports:
+      - '8888:80'   # 9003可以改成任意vps上未使用过的端口，80不要改
+    environment:
+      - PUID=0    # 稍后在终端输入id可以查看当前用户的id
+      - PGID=0    # 同上
+      - TZ=Asia/Shanghai
+    restart: always
+    image: badapple9/speedtest-x
+
+  network-limiter:
+    image: containernetworking/plugins
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - /var/run/docker/netns:/var/run/docker/netns
+    command: "tc qdisc add dev eth0 root handle 1: htb default 10; tc class add dev eth0 parent 1: classid 1:1 htb rate 1000mbps; tc class add dev eth0 parent 1: classid 1:10 htb rate 100mbps; tc filter add dev eth0 protocol ip parent 1:0 prio 1 u32 match ip dst 172.18.0.2 flowid 1:10"
+
+
+  relay-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ./hp s :9595
+    image: holepunch-example
+    cap_add:
+      - NET_ADMIN
+    networks:
+      relay_network:
+        ipv4_address: 123.56.64.101
+
+  clientA-nat:
+    depends_on:
+      - relay-server
+    command: >
+      sh -c "\
+        iptables --append FORWARD --jump ACCEPT && \
+        iptables --append INPUT --jump DROP && \
+        iptables --append OUTPUT --jump DROP && \
+        iptables --table nat --append POSTROUTING --source 192.168.0.0/24 --jump SNAT --to-source 123.56.64.102 && \
+        iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE && \
+        iptables -t nat -A POSTROUTING -o eth1 -j MASQUERADE && \
+        iptables -A FORWARD -i eth1 -j ACCEPT && \
+        iptables -A FORWARD -i eth0 -j ACCEPT && \
+        sleep infinity"
+    image: holepunch-example
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    networks:
+      relay_network:
+        ipv4_address: 123.56.64.102
+      nat_a_network:
+        ipv4_address: 192.168.0.102
+
+  clientA:
+    depends_on:
+      - clientA-nat
+    command: sh -c "ip route del default && ip route add default via 192.168.0.102 && ./hp c 123.56.64.101:9595 & tail -f /dev/null"
+    image: holepunch-example
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    networks:
+      nat_a_network:
+        ipv4_address: 192.168.0.101
+
+  clientB-nat:
+    depends_on:
+      - clientA
+    command: >
+      sh -c "\
+        iptables --append FORWARD --jump ACCEPT && \
+        iptables --append INPUT --jump DROP && \
+        iptables --append OUTPUT --jump DROP && \
+        iptables --table nat --append POSTROUTING --source 192.168.1.0/24 --jump SNAT --to-source 123.56.64.103 && \
+        iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE && \
+        iptables -t nat -A POSTROUTING -o eth1 -j MASQUERADE && \
+        iptables -A FORWARD -i eth1 -j ACCEPT && \
+        iptables -A FORWARD -i eth0 -j ACCEPT && \
+        sleep infinity"
+    image: holepunch-example
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    networks:
+      relay_network:
+        ipv4_address: 123.56.64.103
+      nat_b_network:
+        ipv4_address: 192.168.1.103
+
+  clientB:
+    depends_on:
+      - clientB-nat
+    command: sh -c "ip route del default && ip route add default via 192.168.1.103 && ./hp c 123.56.64.101:9595 & tail -f /dev/null"
+    image: holepunch-example
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    networks:
+      nat_b_network:
+        ipv4_address: 192.168.1.101
+
+networks:
+  relay_network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: 'false'
+    ipam:
+      config:
+        - subnet: 123.56.64.0/24
+          #          gateway: 123.56.64.1
+          ip_range: 123.56.64.100/24
+
+  nat_a_network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: 'false'
+    ipam:
+      config:
+        - subnet: 192.168.0.0/24
+          ip_range: 192.168.0.100/24
+  #          gateway: 192.168.0.1
+  nat_b_network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: 'false'
+    ipam:
+      config:
+        - subnet: 192.168.1.0/24
+          ip_range: 192.168.1.100/24
+#          gateway: 192.168.1.1

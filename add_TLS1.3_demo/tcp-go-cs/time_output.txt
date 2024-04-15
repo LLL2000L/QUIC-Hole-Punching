@@ -1,0 +1,11 @@
+ Container tcp-go-cs-tcp_server-1  Created
+ Container tcp-go-cs-tcp_client-1  Created
+[36mtcp-go-cs-tcp_client-1  | [0m2023/11/03 06:58:54 startTime---> 2023-11-03 06:58:54.112562751 +0000 UTC m=+0.000255509
+[36mtcp-go-cs-tcp_client-1  | [0m2023/11/03 06:58:54 endTime---> 2023-11-03 06:58:54.113368894 +0000 UTC m=+0.001061673
+[33mtcp-go-cs-tcp_server-1  | [0m2023/11/03 06:58:54 服务器endTime---> 2023-11-03 06:58:54.113422508 +0000 UTC m=+0.479420909
+[36mtcp-go-cs-tcp_client-1  | [0m2023/11/03 06:58:54 TotalTime 806.164µs
+[33mtcp-go-cs-tcp_server-1  | [0m2023/11/03 06:58:54 Client connected: 192.168.10.200:60272
+
+real	0m30.477s
+user	0m0.022s
+sys	0m0.049s

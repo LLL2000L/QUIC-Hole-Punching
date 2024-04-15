@@ -1,0 +1,134 @@
+#对docker网络： 5ms延时
+#  (只在其中一个容器的皆苦设置即可，否则出现延时叠加，即每个容器设置延时为5ms，那么这条链路的流量延时就为20ms，因此只在其中一个容器设置延时即可)
+#   （一般就在客户端设备设置即可，还有丢包率类似，也是叠加）
+
+services:
+  relay-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      sh -c "\
+        ./hp s :9595"
+    image: tcp_holepunch_docker
+    cap_add:
+      - NET_ADMIN
+    networks:
+      relay_network:
+        ipv4_address: 123.56.65.101
+
+  clientA-nat:
+    depends_on:
+      - relay-server
+    command: >
+      sh -c "\
+        iptables --append FORWARD --jump ACCEPT && \
+        iptables --append INPUT --jump DROP && \
+        iptables --append OUTPUT --jump DROP && \
+        iptables --table nat --append POSTROUTING --source 172.16.0.0/24 --jump SNAT --to-source 123.56.65.102 && \
+        iptables --insert INPUT --protocol icmp --jump ACCEPT
+        iptables --insert OUTPUT --protocol icmp --jump ACCEPT
+        iptables --insert FORWARD --protocol icmp --jump ACCEPT
+        iptables --insert INPUT --protocol tcp --match multiport --dports 5201:5202 --jump ACCEPT
+        iptables --insert OUTPUT --protocol tcp --match multiport --sports 5201:5202 --jump ACCEPT
+        iptables --insert FORWARD --protocol tcp --match multiport --dports 5201:5202 --jump ACCEPT
+        sleep infinity"
+    image: tcp_holepunch_docker
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    networks:
+      relay_network:
+        ipv4_address: 123.56.65.102
+      nat_a_network:
+        ipv4_address: 172.16.0.102
+
+  clientA:
+    depends_on:
+      - clientA-nat
+    command: >
+      sh -c "\
+        ip route del default && \
+        ip route add default via 172.16.0.102 && \
+        tc qdisc add dev eth0 root netem delay 20ms && \
+        ./hp c 123.56.65.101:9595 & tail -f /dev/null"
+    image: tcp_holepunch_docker
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    networks:
+      nat_a_network:
+        ipv4_address: 172.16.0.101
+
+  clientB-nat:
+    depends_on:
+      - clientA
+    command: >
+      sh -c "\
+        iptables --append FORWARD --jump ACCEPT && \
+        iptables --append INPUT --jump DROP && \
+        iptables --append OUTPUT --jump DROP && \
+        iptables --table nat --append POSTROUTING --source 172.16.1.0/24 --jump SNAT --to-source 123.56.65.103 && \
+        iptables --insert INPUT --protocol icmp --jump ACCEPT
+        iptables --insert OUTPUT --protocol icmp --jump ACCEPT
+        iptables --insert FORWARD --protocol icmp --jump ACCEPT
+        iptables --insert INPUT --protocol tcp --match multiport --dports 5201:5202 --jump ACCEPT
+        iptables --insert OUTPUT --protocol tcp --match multiport --sports 5201:5202 --jump ACCEPT
+        iptables --insert FORWARD --protocol tcp --match multiport --dports 5201:5202 --jump ACCEPT
+        sleep infinity"
+    image: tcp_holepunch_docker
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    networks:
+      relay_network:
+        ipv4_address: 123.56.65.103
+      nat_b_network:
+        ipv4_address: 172.16.1.103
+
+  clientB:
+    depends_on:
+      - clientB-nat
+    command: >
+      sh -c "\
+        ip route del default && \
+        ip route add default via 172.16.1.103 && \
+        tc qdisc add dev eth0 root netem delay 20ms && \
+        ./hp c 123.56.65.101:9595 & tail -f /dev/null"
+    image: tcp_holepunch_docker
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    networks:
+      nat_b_network:
+        ipv4_address: 172.16.1.101
+
+networks:
+  relay_network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: 'false'
+    ipam:
+      config:
+        - subnet: 123.56.65.0/24
+          #          gateway: 123.56.64.1
+          ip_range: 123.56.65.100/24
+
+  nat_a_network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: 'false'
+    ipam:
+      config:
+        - subnet: 172.16.0.0/24
+          ip_range: 172.16.0.100/24
+  #          gateway: 192.168.0.1
+  nat_b_network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: 'false'
+    ipam:
+      config:
+        - subnet: 172.16.1.0/24
+          ip_range: 172.16.1.100/24
+#          gateway: 192.168.1.1

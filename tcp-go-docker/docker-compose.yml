@@ -1,0 +1,148 @@
+services:
+  iperf:
+    image: quic_holepunch_docker
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - /var/run/docker/netns:/var/run/docker/netns
+    networks:
+      - relay_network
+      - nat_a_network
+      - nat_b_network
+
+  relay-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      sh -c "\
+        tc qdisc add dev eth0 root handle 1: tbf rate 10mbit latency 50ms burst 10kb && \
+        tc qdisc add dev eth0 parent 1:1 handle 10: netem loss 10% && \
+        tc qdisc add dev eth0 parent 10: handle 20: netem delay 10ms && \
+        ./hp s :9595"
+    image: tcp_holepunch_docker
+    cap_add:
+      - NET_ADMIN
+    networks:
+      relay_network:
+        ipv4_address: 123.56.65.101
+
+  clientA-nat:
+    depends_on:
+      - relay-server
+    command: >
+      sh -c "\
+        iptables --append FORWARD --jump ACCEPT && \
+        iptables --append INPUT --jump DROP && \
+        iptables --append OUTPUT --jump DROP && \
+        iptables --table nat --append POSTROUTING --source 172.16.0.0/24 --jump SNAT --to-source 123.56.65.102 && \
+        tc qdisc add dev eth0 root handle 1: tbf rate 10mbit latency 50ms burst 10kb && \
+        tc qdisc add dev eth0 parent 1:1 handle 10: netem loss 10% && \
+        tc qdisc add dev eth0 parent 10: handle 20: netem delay 10ms && \
+        tc qdisc add dev eth1 root handle 1: tbf rate 10mbit latency 50ms burst 10kb && \
+        tc qdisc add dev eth1 parent 1:1 handle 10: netem loss 10% && \
+        tc qdisc add dev eth1 parent 10: handle 20: netem delay 10ms && \
+        sleep infinity"
+    image: tcp_holepunch_docker
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    networks:
+      relay_network:
+        ipv4_address: 123.56.65.102
+      nat_a_network:
+        ipv4_address: 172.16.0.102
+
+  clientA:
+    depends_on:
+      - clientA-nat
+    command: >
+      sh -c "\
+        ip route del default && \
+        ip route add default via 172.16.0.102 && \
+        tc qdisc add dev eth0 root handle 1: tbf rate 10mbit latency 50ms burst 10kb && \
+        tc qdisc add dev eth0 parent 1:1 handle 10: netem loss 10% && \
+        tc qdisc add dev eth0 parent 10: handle 20: netem delay 10ms && \
+        ./hp c 123.56.65.101:9595 & tail -f /dev/null"
+    image: tcp_holepunch_docker
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    networks:
+      nat_a_network:
+        ipv4_address: 172.16.0.101
+
+  clientB-nat:
+    depends_on:
+      - clientA
+    command: >
+      sh -c "\
+        iptables --append FORWARD --jump ACCEPT && \
+        iptables --append INPUT --jump DROP && \
+        iptables --append OUTPUT --jump DROP && \
+        iptables --table nat --append POSTROUTING --source 172.16.1.0/24 --jump SNAT --to-source 123.56.65.103 && \
+        tc qdisc add dev eth0 root handle 1: tbf rate 10mbit latency 50ms burst 10kb && \
+        tc qdisc add dev eth0 parent 1:1 handle 10: netem loss 10% && \
+        tc qdisc add dev eth0 parent 10: handle 20: netem delay 10ms && \
+        tc qdisc add dev eth1 root handle 1: tbf rate 10mbit latency 50ms burst 10kb && \
+        tc qdisc add dev eth1 parent 1:1 handle 10: netem loss 10% && \
+        tc qdisc add dev eth1 parent 10: handle 20: netem delay 10ms && \
+        sleep infinity"
+    image: tcp_holepunch_docker
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    networks:
+      relay_network:
+        ipv4_address: 123.56.65.103
+      nat_b_network:
+        ipv4_address: 172.16.1.103
+
+  clientB:
+    depends_on:
+      - clientB-nat
+    command: >
+      sh -c "\
+        ip route del default && \
+        ip route add default via 172.16.1.103 && \
+        tc qdisc add dev eth0 root handle 1: tbf rate 10mbit latency 50ms burst 10kb && \
+        tc qdisc add dev eth0 parent 1:1 handle 10: netem loss 10% && \
+        tc qdisc add dev eth0 parent 10: handle 20: netem delay 10ms && \
+        ./hp c 123.56.65.101:9595 & tail -f /dev/null"
+    image: tcp_holepunch_docker
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    networks:
+      nat_b_network:
+        ipv4_address: 172.16.1.101
+
+networks:
+  relay_network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: 'false'
+    ipam:
+      config:
+        - subnet: 123.56.65.0/24
+          #          gateway: 123.56.64.1
+          ip_range: 123.56.65.100/24
+
+  nat_a_network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: 'false'
+    ipam:
+      config:
+        - subnet: 172.16.0.0/24
+          ip_range: 172.16.0.100/24
+  #          gateway: 192.168.0.1
+  nat_b_network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: 'false'
+    ipam:
+      config:
+        - subnet: 172.16.1.0/24
+          ip_range: 172.16.1.100/24
+#          gateway: 192.168.1.1
