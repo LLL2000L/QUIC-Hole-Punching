@@ -4,11 +4,9 @@
 
 2. **tcpc-go-docker**: Content about TCP Hole Punching
 
-3. **lsquic_cpp_migrate**: Verification of Connection Migration
+3. **add_TLS1.3_demo**: Small experiment comparing TCP+TLS1.3 with QUIC
 
-4. **add_TLS1.3_demo**: Small experiment comparing TCP+TLS1.3 with QUIC
-
-5. **analyze_fin**: Data analysis using Python
+4. **analyze_fin**: Data analysis using Python
 
 ===========================
 
@@ -16,8 +14,6 @@
 
 2. tcpc-go-docker ：TCP 打洞内容
 
-3. lsquic_cpp_migrate ：验证连接迁移
+3. add_TLS1.3_demo：TCP+TLS1.3 与 QUIC 对比小实验
 
-4. add_TLS1.3_demo：TCP+TLS1.3 与 QUIC 对比小实验
-
-5. analyze_fin：使用 python 数据分析
+4. analyze_fin：使用 python 数据分析
